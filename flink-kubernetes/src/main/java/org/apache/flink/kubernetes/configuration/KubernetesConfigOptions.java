@@ -200,7 +200,7 @@ public class KubernetesConfigOptions {
                                     + "Visit https://hub.docker.com/_/flink?tab=tags for the official docker images provided by the Flink project. The Flink project also publishes docker images here: https://hub.docker.com/r/apache/flink");
 
     public static final ConfigOption<String> JOB_MANAGER_VOLUME_MOUNT =
-            key("kubernetes.jobmanager.volumemount")
+            key("kubernetes.jobmanager.volume-mounts")
                     .stringType()
                     .noDefaultValue()
                     .withDescription(
@@ -209,7 +209,7 @@ public class KubernetesConfigOptions {
                                     + "parameters - name used for mount, mounting path and volume specific parameters");
 
     public static final ConfigOption<String> TASK_MANAGER_VOLUME_MOUNT =
-            key("kubernetes.taskmanager.volumemount")
+            key("kubernetes.taskmanager.volume-mounts")
                     .stringType()
                     .noDefaultValue()
                     .withDescription(
