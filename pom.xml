@@ -154,7 +154,7 @@ under the License.
 			For Hadoop 2.7, the minor Hadoop version supported for flink-shaded-hadoop-2-uber is 2.7.5
 		-->
 		<hivemetastore.hadoop.version>2.7.5</hivemetastore.hadoop.version>
-		<japicmp.referenceVersion>1.12.0</japicmp.referenceVersion>
+		<japicmp.referenceVersion>1.12.2</japicmp.referenceVersion>
 		<japicmp.outputDir>tools/japicmp-output</japicmp.outputDir>
 		<spotless.version>2.4.2</spotless.version>
 	</properties>
@@ -460,7 +460,7 @@ under the License.
 			<dependency>
 				<groupId>org.xerial.snappy</groupId>
 				<artifactId>snappy-java</artifactId>
-				<version>1.1.4</version>
+				<version>1.1.8.3</version>
 			</dependency>
 
 			<dependency>
@@ -524,7 +524,7 @@ under the License.
 				<artifactId>jackson-bom</artifactId>
 				<type>pom</type>
 				<scope>import</scope>
-				<version>${jackson.version}</version>
+				<version>2.10.5.20201202</version>
 			</dependency>
 
 			<dependency>
@@ -1408,9 +1408,11 @@ under the License.
 						<!-- External web libraries. -->
 						<exclude>docs/**/jquery*</exclude>
 						<exclude>docs/**/bootstrap*</exclude>
+						<exclude>docs/**/anchor*</exclude>
 						<exclude>docs/Gemfile.lock</exclude>
 						<exclude>docs/ruby2/Gemfile.lock</exclude>
 						<exclude>docs/img/*.svg</exclude>
+						<exclude>**/docs/page/fonts/**</exclude>
 						<exclude>**/docs/page/font-awesome/**</exclude>
 						<exclude>**/resources/**/font-awesome/**</exclude>
 						<exclude>**/resources/**/jquery*</exclude>
@@ -1654,7 +1656,7 @@ under the License.
 							<rules>
 								<bannedDependencies>
 									<excludes>
-										<exclude>com.fasterxml.jackson*:*:(,2.10.0]</exclude>
+										<exclude>com.fasterxml.jackson*:*:(,2.10.4]</exclude>
 									</excludes>
 								</bannedDependencies>
 							</rules>

@@ -21,7 +21,9 @@ package org.apache.flink.runtime.messages.checkpoint;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
-import org.apache.flink.util.SerializedThrowable;
+import org.apache.flink.util.Preconditions;
+
+import javax.annotation.Nonnull;
 
 /**
  * This message is sent from the {@link org.apache.flink.runtime.taskexecutor.TaskExecutor} to the
@@ -33,23 +35,20 @@ public class DeclineCheckpoint extends AbstractCheckpointMessage implements java
 
     private static final long serialVersionUID = 2094094662279578953L;
 
-    /** The reason why the checkpoint was declined. */
-    private final Throwable reason;
-
-    public DeclineCheckpoint(JobID job, ExecutionAttemptID taskExecutionId, long checkpointId) {
-        this(job, taskExecutionId, checkpointId, null);
-    }
+    /** The serialized reason why the checkpoint was declined. */
+    private final SerializedCheckpointException serializedCheckpointException;
 
     public DeclineCheckpoint(
-            JobID job, ExecutionAttemptID taskExecutionId, long checkpointId, Throwable reason) {
+            JobID job,
+            ExecutionAttemptID taskExecutionId,
+            long checkpointId,
+            CheckpointException checkpointException) {
         super(job, taskExecutionId, checkpointId);
 
-        if (reason == null || reason instanceof CheckpointException) {
-            this.reason = reason;
-        } else {
-            // some other exception. replace with a serialized throwable, to be on the safe side
-            this.reason = new SerializedThrowable(reason);
-        }
+        Preconditions.checkNotNull(
+                checkpointException, "The checkpoint exception must not be null.");
+        // replace with a serialized throwable, to be on the safe side
+        this.serializedCheckpointException = new SerializedCheckpointException(checkpointException);
     }
 
     // --------------------------------------------------------------------------------------------
@@ -59,8 +58,9 @@ public class DeclineCheckpoint extends AbstractCheckpointMessage implements java
      *
      * @return The reason why the checkpoint was declined
      */
-    public Throwable getReason() {
-        return reason;
+    @Nonnull
+    public SerializedCheckpointException getSerializedCheckpointException() {
+        return serializedCheckpointException;
     }
 
     // --------------------------------------------------------------------------------------------
@@ -69,6 +69,9 @@ public class DeclineCheckpoint extends AbstractCheckpointMessage implements java
     public String toString() {
         return String.format(
                 "Declined Checkpoint %d for (%s/%s): %s",
-                getCheckpointId(), getJob(), getTaskExecutionId(), reason);
+                getCheckpointId(),
+                getJob(),
+                getTaskExecutionId(),
+                serializedCheckpointException.getCheckpointFailureReason());
     }
 }

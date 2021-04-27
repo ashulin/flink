@@ -173,6 +173,7 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
         final long cancelledId = cancelBarrier.getCheckpointId();
         if (cancelledId > currentCheckpointId
                 || (cancelledId == currentCheckpointId && numBarriersReceived > 0)) {
+            LOG.debug("{}: Received cancellation {}.", taskName, cancelledId);
             abortInternal(
                     cancelledId,
                     new CheckpointException(
@@ -186,8 +187,8 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
         currentCheckpointId = Math.max(cancelledId, currentCheckpointId);
         numBarriersReceived = 0;
         controller.abortPendingCheckpoint(cancelledId, exception);
-        allBarriersReceivedFuture.completeExceptionally(exception);
         notifyAbort(cancelledId, exception);
+        allBarriersReceivedFuture.completeExceptionally(exception);
     }
 
     @Override

@@ -442,17 +442,26 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
     @Override
     public CompletableFuture<Acknowledge> updateTaskExecutionState(
             final TaskExecutionState taskExecutionState) {
-        checkNotNull(taskExecutionState, "taskExecutionState");
+        FlinkException taskExecutionException;
+        try {
+            checkNotNull(taskExecutionState, "taskExecutionState");
 
-        if (schedulerNG.updateTaskExecutionState(taskExecutionState)) {
-            return CompletableFuture.completedFuture(Acknowledge.get());
-        } else {
-            return FutureUtils.completedExceptionally(
-                    new ExecutionGraphException(
-                            "The execution attempt "
-                                    + taskExecutionState.getID()
-                                    + " was not found."));
+            if (schedulerNG.updateTaskExecutionState(taskExecutionState)) {
+                return CompletableFuture.completedFuture(Acknowledge.get());
+            } else {
+                taskExecutionException =
+                        new ExecutionGraphException(
+                                "The execution attempt "
+                                        + taskExecutionState.getID()
+                                        + " was not found.");
+            }
+        } catch (Exception e) {
+            taskExecutionException =
+                    new JobMasterException(
+                            "Could not update the state of task execution for JobMaster.", e);
+            handleJobMasterError(taskExecutionException);
         }
+        return FutureUtils.completedExceptionally(taskExecutionException);
     }
 
     @Override
@@ -662,7 +671,19 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
     public CompletableFuture<RegistrationResponse> registerTaskManager(
             final String taskManagerRpcAddress,
             final UnresolvedTaskManagerLocation unresolvedTaskManagerLocation,
+            final JobID jobId,
             final Time timeout) {
+
+        if (!jobGraph.getJobID().equals(jobId)) {
+            log.debug(
+                    "Rejecting TaskManager registration attempt because of wrong job id {}.",
+                    jobId);
+            return CompletableFuture.completedFuture(
+                    new JMTMRegistrationRejection(
+                            String.format(
+                                    "The JobManager is not responsible for job %s. Maybe the TaskManager used outdated connection information.",
+                                    jobId)));
+        }
 
         final TaskManagerLocation taskManagerLocation;
         try {
@@ -682,7 +703,8 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                             unresolvedTaskManagerLocation.getExternalAddress(),
                             throwable.getMessage());
             log.error(errMsg);
-            return CompletableFuture.completedFuture(new RegistrationResponse.Decline(errMsg));
+            return CompletableFuture.completedFuture(
+                    new RegistrationResponse.Failure(new FlinkException(errMsg, throwable)));
         }
 
         final ResourceID taskManagerId = taskManagerLocation.getResourceID();
@@ -696,7 +718,7 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                     .handleAsync(
                             (TaskExecutorGateway taskExecutorGateway, Throwable throwable) -> {
                                 if (throwable != null) {
-                                    return new RegistrationResponse.Decline(throwable.getMessage());
+                                    return new RegistrationResponse.Failure(throwable);
                                 }
 
                                 slotPool.registerTaskManager(taskManagerId);
@@ -780,11 +802,9 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
     @Override
     public CompletableFuture<String> stopWithSavepoint(
-            @Nullable final String targetDirectory,
-            final boolean advanceToEndOfEventTime,
-            final Time timeout) {
+            @Nullable final String targetDirectory, final boolean terminate, final Time timeout) {
 
-        return schedulerNG.stopWithSavepoint(targetDirectory, advanceToEndOfEventTime);
+        return schedulerNG.stopWithSavepoint(targetDirectory, terminate);
     }
 
     @Override
@@ -1227,7 +1247,8 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
         ResourceManagerGateway resourceManagerGateway =
                 establishedResourceManagerConnection.getResourceManagerGateway();
-        resourceManagerGateway.disconnectJobManager(jobGraph.getJobID(), cause);
+        resourceManagerGateway.disconnectJobManager(
+                jobGraph.getJobID(), schedulerNG.requestJobStatus(), cause);
         slotPool.disconnectResourceManager();
     }
 
@@ -1266,7 +1287,10 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
     private class ResourceManagerConnection
             extends RegisteredRpcConnection<
-                    ResourceManagerId, ResourceManagerGateway, JobMasterRegistrationSuccess> {
+                    ResourceManagerId,
+                    ResourceManagerGateway,
+                    JobMasterRegistrationSuccess,
+                    RegistrationResponse.Rejection> {
         private final JobID jobID;
 
         private final ResourceID jobManagerResourceID;
@@ -1293,10 +1317,16 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
         @Override
         protected RetryingRegistration<
-                        ResourceManagerId, ResourceManagerGateway, JobMasterRegistrationSuccess>
+                        ResourceManagerId,
+                        ResourceManagerGateway,
+                        JobMasterRegistrationSuccess,
+                        RegistrationResponse.Rejection>
                 generateRegistration() {
             return new RetryingRegistration<
-                    ResourceManagerId, ResourceManagerGateway, JobMasterRegistrationSuccess>(
+                    ResourceManagerId,
+                    ResourceManagerGateway,
+                    JobMasterRegistrationSuccess,
+                    RegistrationResponse.Rejection>(
                     log,
                     getRpcService(),
                     "ResourceManager",
@@ -1332,6 +1362,13 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                             establishResourceManagerConnection(success);
                         }
                     });
+        }
+
+        @Override
+        protected void onRegistrationRejection(RegistrationResponse.Rejection rejection) {
+            handleJobMasterError(
+                    new IllegalStateException(
+                            "The ResourceManager should never reject a JobMaster registration."));
         }
 
         @Override

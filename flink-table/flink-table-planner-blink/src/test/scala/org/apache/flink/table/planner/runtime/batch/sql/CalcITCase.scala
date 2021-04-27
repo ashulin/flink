@@ -26,7 +26,7 @@ import org.apache.flink.api.common.typeinfo.Types
 import org.apache.flink.api.common.typeinfo.Types.INSTANT
 import org.apache.flink.api.java.typeutils._
 import org.apache.flink.api.scala._
-import org.apache.flink.table.api.ValidationException
+import org.apache.flink.table.api.{DataTypes, TableSchema, ValidationException}
 import org.apache.flink.table.api.config.ExecutionConfigOptions
 import org.apache.flink.table.data.{DecimalDataUtils, TimestampData}
 import org.apache.flink.table.data.util.DataFormatConverters.LocalDateConverter
@@ -38,10 +38,11 @@ import org.apache.flink.table.planner.runtime.utils.BatchTestBase.row
 import org.apache.flink.table.planner.runtime.utils.TestData._
 import org.apache.flink.table.planner.runtime.utils.UserDefinedFunctionTestUtils._
 import org.apache.flink.table.planner.runtime.utils.{BatchTableEnvUtil, BatchTestBase, TestData, UserDefinedFunctionTestUtils}
-import org.apache.flink.table.planner.utils.DateTimeTestUtil
+import org.apache.flink.table.planner.utils.{DateTimeTestUtil, TestLegacyFilterableTableSource}
 import org.apache.flink.table.planner.utils.DateTimeTestUtil._
 import org.apache.flink.table.runtime.functions.SqlDateTimeUtils.unixTimestampToLocalDateTime
 import org.apache.flink.types.Row
+
 import org.junit.Assert.assertEquals
 import org.junit._
 
@@ -1310,4 +1311,72 @@ class CalcITCase extends BatchTestBase {
     )
   }
 
+  @Test
+  def testFloatIn(): Unit = {
+    val source = tEnv.fromValues(
+      DataTypes.ROW(
+        DataTypes.FIELD("f0", DataTypes.FLOAT()),
+        DataTypes.FIELD("f1", DataTypes.FLOAT()),
+        DataTypes.FIELD("f2", DataTypes.FLOAT())),
+      row(1.0f, 11.0f, 12.0f),
+      row(2.0f, 21.0f, 22.0f),
+      row(3.0f, 31.0f, 32.0f),
+      row(4.0f, 41.0f, 42.0f),
+      row(5.0f, 51.0f, 52.0f)
+    )
+
+    tEnv.createTemporaryView("myTable", source)
+
+    val query = """
+                  |select * from myTable where f0 in (1.0, 2.0, 3.0)
+                  |""".stripMargin;
+
+    checkResult(
+      query,
+      Seq(
+        row(1.0f, 11.0f, 12.0f),
+        row(2.0f, 21.0f, 22.0f),
+        row(3.0f, 31.0f, 32.0f))
+    )
+  }
+
+  @Test
+  def testFilterPushDownWithInterval(): Unit = {
+    val schema = TableSchema
+      .builder()
+      .field("a", DataTypes.TIMESTAMP)
+      .field("b", DataTypes.TIMESTAMP)
+      .build()
+
+    val data = List(
+      row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 14:59:59")),
+      row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 15:00:00")),
+      row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 15:00:01")),
+      row(localDateTime("2021-03-30 10:00:00"), localDateTime("2023-03-30 09:59:59")),
+      row(localDateTime("2021-03-30 10:00:00"), localDateTime("2023-03-30 10:00:00")),
+      row(localDateTime("2021-03-30 10:00:00"), localDateTime("2023-03-30 10:00:01")))
+
+    TestLegacyFilterableTableSource.createTemporaryTable(
+      tEnv,
+      schema,
+      "myTable",
+      isBounded = true,
+      data,
+      List("a", "b"))
+
+    checkResult(
+      "SELECT * FROM myTable WHERE TIMESTAMPADD(HOUR, 5, a) >= b",
+      Seq(
+        row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 14:59:59")),
+        row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 15:00:00"))))
+
+    checkResult(
+      "SELECT * FROM myTable WHERE TIMESTAMPADD(YEAR, 2, a) >= b",
+      Seq(
+        row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 14:59:59")),
+        row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 15:00:00")),
+        row(localDateTime("2021-03-30 10:00:00"), localDateTime("2021-03-30 15:00:01")),
+        row(localDateTime("2021-03-30 10:00:00"), localDateTime("2023-03-30 09:59:59")),
+        row(localDateTime("2021-03-30 10:00:00"), localDateTime("2023-03-30 10:00:00"))))
+  }
 }

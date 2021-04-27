@@ -34,6 +34,7 @@ import org.apache.flink.kubernetes.utils.Constants;
 import org.apache.flink.kubernetes.utils.KubernetesUtils;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.util.ExceptionUtils;
+import org.apache.flink.util.ExecutorUtils;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.HasMetadata;
@@ -44,7 +45,6 @@ import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServicePort;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
-import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
 import org.slf4j.Logger;
@@ -57,9 +57,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -69,17 +69,17 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(Fabric8FlinkKubeClient.class);
 
-    private final KubernetesClient internalClient;
+    private final NamespacedKubernetesClient internalClient;
     private final String clusterId;
     private final String namespace;
     private final int maxRetryAttempts;
 
-    private final Executor kubeClientExecutorService;
+    private final ExecutorService kubeClientExecutorService;
 
     public Fabric8FlinkKubeClient(
             Configuration flinkConfig,
-            KubernetesClient client,
-            Supplier<Executor> asyncExecutorFactory) {
+            NamespacedKubernetesClient client,
+            ExecutorService executorService) {
         this.internalClient = checkNotNull(client);
         this.clusterId = checkNotNull(flinkConfig.getString(KubernetesConfigOptions.CLUSTER_ID));
 
@@ -89,7 +89,7 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                 flinkConfig.getInteger(
                         KubernetesConfigOptions.KUBERNETES_TRANSACTIONAL_OPERATION_MAX_RETRIES);
 
-        this.kubeClientExecutorService = asyncExecutorFactory.get();
+        this.kubeClientExecutorService = checkNotNull(executorService);
     }
 
     @Override
@@ -98,21 +98,17 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
         final List<HasMetadata> accompanyingResources = kubernetesJMSpec.getAccompanyingResources();
 
         // create Deployment
-        LOG.debug("Start to create deployment with spec {}", deployment.getSpec().toString());
+        LOG.debug(
+                "Start to create deployment with spec {}{}",
+                System.lineSeparator(),
+                KubernetesUtils.tryToGetPrettyPrintYaml(deployment));
         final Deployment createdDeployment =
-                this.internalClient
-                        .apps()
-                        .deployments()
-                        .inNamespace(this.namespace)
-                        .create(deployment);
+                this.internalClient.apps().deployments().create(deployment);
 
         // Note that we should use the uid of the created Deployment for the OwnerReference.
         setOwnerReference(createdDeployment, accompanyingResources);
 
-        this.internalClient
-                .resourceList(accompanyingResources)
-                .inNamespace(this.namespace)
-                .createOrReplace();
+        this.internalClient.resourceList(accompanyingResources).createOrReplace();
     }
 
     @Override
@@ -123,7 +119,6 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                             this.internalClient
                                     .apps()
                                     .deployments()
-                                    .inNamespace(this.namespace)
                                     .withName(KubernetesUtils.getDeploymentName(clusterId))
                                     .get();
 
@@ -142,14 +137,12 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                             Collections.singletonList(kubernetesPod.getInternalResource()));
 
                     LOG.debug(
-                            "Start to create pod with metadata {}, spec {}",
-                            kubernetesPod.getInternalResource().getMetadata(),
-                            kubernetesPod.getInternalResource().getSpec());
+                            "Start to create pod with spec {}{}",
+                            System.lineSeparator(),
+                            KubernetesUtils.tryToGetPrettyPrintYaml(
+                                    kubernetesPod.getInternalResource()));
 
-                    this.internalClient
-                            .pods()
-                            .inNamespace(this.namespace)
-                            .create(kubernetesPod.getInternalResource());
+                    this.internalClient.pods().create(kubernetesPod.getInternalResource());
                 },
                 kubeClientExecutorService);
     }
@@ -201,7 +194,6 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
         this.internalClient
                 .apps()
                 .deployments()
-                .inNamespace(this.namespace)
                 .withName(KubernetesUtils.getDeploymentName(clusterId))
                 .cascading(true)
                 .delete();
@@ -217,12 +209,7 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
         final String serviceName = ExternalServiceDecorator.getExternalServiceName(clusterId);
 
         final Service service =
-                this.internalClient
-                        .services()
-                        .inNamespace(namespace)
-                        .withName(serviceName)
-                        .fromServer()
-                        .get();
+                this.internalClient.services().withName(serviceName).fromServer().get();
 
         if (service == null) {
             LOG.debug("Service {} does not exist", serviceName);
@@ -247,10 +234,7 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
             KubernetesLeaderElectionConfiguration leaderElectionConfiguration,
             KubernetesLeaderElector.LeaderCallbackHandler leaderCallbackHandler) {
         return new KubernetesLeaderElector(
-                (NamespacedKubernetesClient) this.internalClient,
-                namespace,
-                leaderElectionConfiguration,
-                leaderCallbackHandler);
+                this.internalClient, leaderElectionConfiguration, leaderCallbackHandler);
     }
 
     @Override
@@ -260,7 +244,6 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                         () ->
                                 this.internalClient
                                         .configMaps()
-                                        .inNamespace(namespace)
                                         .create(configMap.getInternalResource()),
                         kubeClientExecutorService)
                 .exceptionally(
@@ -274,8 +257,7 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
 
     @Override
     public Optional<KubernetesConfigMap> getConfigMap(String name) {
-        final ConfigMap configMap =
-                this.internalClient.configMaps().inNamespace(namespace).withName(name).get();
+        final ConfigMap configMap = this.internalClient.configMaps().withName(name).get();
         return configMap == null
                 ? Optional.empty()
                 : Optional.of(new KubernetesConfigMap(configMap));
@@ -299,8 +281,6 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                                                                                         this
                                                                                                 .internalClient
                                                                                                 .configMaps()
-                                                                                                .inNamespace(
-                                                                                                        namespace)
                                                                                                 .withName(
                                                                                                         configMapName)
                                                                                                 .lockResourceVersion(
@@ -353,30 +333,21 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
     @Override
     public CompletableFuture<Void> deleteConfigMapsByLabels(Map<String, String> labels) {
         return CompletableFuture.runAsync(
-                () ->
-                        this.internalClient
-                                .configMaps()
-                                .inNamespace(namespace)
-                                .withLabels(labels)
-                                .delete(),
+                () -> this.internalClient.configMaps().withLabels(labels).delete(),
                 kubeClientExecutorService);
     }
 
     @Override
     public CompletableFuture<Void> deleteConfigMap(String configMapName) {
         return CompletableFuture.runAsync(
-                () ->
-                        this.internalClient
-                                .configMaps()
-                                .inNamespace(namespace)
-                                .withName(configMapName)
-                                .delete(),
+                () -> this.internalClient.configMaps().withName(configMapName).delete(),
                 kubeClientExecutorService);
     }
 
     @Override
     public void close() {
         this.internalClient.close();
+        ExecutorUtils.gracefulShutdown(5, TimeUnit.SECONDS, this.kubeClientExecutorService);
     }
 
     private void setOwnerReference(Deployment deployment, List<HasMetadata> resources) {

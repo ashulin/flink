@@ -30,6 +30,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import static org.apache.flink.configuration.ConfigOptions.key;
+import static org.apache.flink.configuration.description.LinkElement.link;
 import static org.apache.flink.configuration.description.TextElement.code;
 
 /** This class holds configuration constants used by Flink's kubernetes runners. */
@@ -52,8 +53,8 @@ public class KubernetesConfigOptions {
                     .enumType(ServiceExposedType.class)
                     .defaultValue(ServiceExposedType.LoadBalancer)
                     .withDescription(
-                            "The type of the rest service (ClusterIP or NodePort or LoadBalancer). "
-                                    + "When set to ClusterIP, the rest service will not be created.");
+                            "The exposed type of the rest service (ClusterIP or NodePort or LoadBalancer). "
+                                    + "The exposed rest service could be used to access the Flink’s Web UI and REST endpoint.");
 
     public static final ConfigOption<String> JOB_MANAGER_SERVICE_ACCOUNT =
             key("kubernetes.jobmanager.service-account")
@@ -89,6 +90,26 @@ public class KubernetesConfigOptions {
                                     + TASK_MANAGER_SERVICE_ACCOUNT.key()
                                     + "' for jobmanager and taskmanager respectively.");
 
+    public static final ConfigOption<List<Map<String, String>>> JOB_MANAGER_OWNER_REFERENCE =
+            key("kubernetes.jobmanager.owner.reference")
+                    .mapType()
+                    .asList()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "The user-specified %s to be set to the JobManager Deployment. "
+                                                    + "When all the owner resources are deleted, the JobManager Deployment "
+                                                    + "will be deleted automatically, which also deletes all the resources "
+                                                    + "created by this Flink cluster. The value should be formatted as a "
+                                                    + "semicolon-separated list of owner references, where each owner "
+                                                    + "reference is a comma-separated list of `key:value` pairs. E.g., "
+                                                    + "apiVersion:v1,blockOwnerDeletion:true,controller:true,kind:FlinkApplication,name:flink-app-name,uid:flink-app-uid;"
+                                                    + "apiVersion:v1,kind:Deployment,name:deploy-name,uid:deploy-uid",
+                                            link(
+                                                    "https://ci.apache.org/projects/flink/flink-docs-master/deployment/resource-providers/native_kubernetes.html#manual-resource-cleanup",
+                                                    "Owner References"))
+                                    .build());
     public static final ConfigOption<Double> JOB_MANAGER_CPU =
             key("kubernetes.jobmanager.cpu")
                     .doubleType()
@@ -356,6 +377,15 @@ public class KubernetesConfigOptions {
                                                     + "client gives up. For example, %s.",
                                             code("FlinkKubeClient#checkAndUpdateConfigMap"))
                                     .build());
+
+    public static final ConfigOption<Integer> KUBERNETES_CLIENT_IO_EXECUTOR_POOL_SIZE =
+            key("kubernetes.client.io-pool.size")
+                    .intType()
+                    .defaultValue(4)
+                    .withDescription(
+                            "The size of the IO executor pool used by the Kubernetes client to execute blocking IO operations "
+                                    + "(e.g. start/stop TaskManager pods, update leader related ConfigMaps, etc.). "
+                                    + "Increasing the pool size allows to run more IO operations concurrently.");
 
     private static String getDefaultFlinkImage() {
         // The default container image that ties to the exact needed versions of both Flink and

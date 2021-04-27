@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.jobmaster;
 
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.time.Time;
@@ -167,6 +168,7 @@ public interface JobMasterGateway
      *
      * @param taskManagerRpcAddress the rpc address of the task manager
      * @param unresolvedTaskManagerLocation unresolved location of the task manager
+     * @param jobId jobId specifying the job for which the JobMaster should be responsible
      * @param timeout for the rpc call
      * @return Future registration response indicating whether the registration was successful or
      *     not
@@ -174,6 +176,7 @@ public interface JobMasterGateway
     CompletableFuture<RegistrationResponse> registerTaskManager(
             final String taskManagerRpcAddress,
             final UnresolvedTaskManagerLocation unresolvedTaskManagerLocation,
+            final JobID jobId,
             @RpcTimeout final Time timeout);
 
     /**
@@ -234,14 +237,13 @@ public interface JobMasterGateway
      *
      * @param targetDirectory to which to write the savepoint data or null if the default savepoint
      *     directory should be used
-     * @param advanceToEndOfEventTime Flag indicating if the source should inject a {@code
-     *     MAX_WATERMARK} in the pipeline to fire any registered event-time timers
+     * @param terminate flag indicating if the job should terminate or just suspend
      * @param timeout for the rpc call
      * @return Future which is completed with the savepoint path once completed
      */
     CompletableFuture<String> stopWithSavepoint(
             @Nullable final String targetDirectory,
-            final boolean advanceToEndOfEventTime,
+            final boolean terminate,
             @RpcTimeout final Time timeout);
 
     /**

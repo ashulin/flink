@@ -111,8 +111,11 @@ public class TestingJobMasterGateway implements JobMasterGateway {
     @Nonnull private final TriConsumer<ResourceID, AllocationID, Throwable> failSlotConsumer;
 
     @Nonnull
-    private final BiFunction<
-                    String, UnresolvedTaskManagerLocation, CompletableFuture<RegistrationResponse>>
+    private final TriFunction<
+                    String,
+                    UnresolvedTaskManagerLocation,
+                    JobID,
+                    CompletableFuture<RegistrationResponse>>
             registerTaskManagerFunction;
 
     @Nonnull
@@ -213,9 +216,10 @@ public class TestingJobMasterGateway implements JobMasterGateway {
                             offerSlotsFunction,
             @Nonnull TriConsumer<ResourceID, AllocationID, Throwable> failSlotConsumer,
             @Nonnull
-                    BiFunction<
+                    TriFunction<
                                     String,
                                     UnresolvedTaskManagerLocation,
+                                    JobID,
                                     CompletableFuture<RegistrationResponse>>
                             registerTaskManagerFunction,
             @Nonnull
@@ -365,9 +369,10 @@ public class TestingJobMasterGateway implements JobMasterGateway {
     public CompletableFuture<RegistrationResponse> registerTaskManager(
             String taskManagerRpcAddress,
             UnresolvedTaskManagerLocation unresolvedTaskManagerLocation,
+            JobID jobId,
             Time timeout) {
         return registerTaskManagerFunction.apply(
-                taskManagerRpcAddress, unresolvedTaskManagerLocation);
+                taskManagerRpcAddress, unresolvedTaskManagerLocation, jobId);
     }
 
     @Override
@@ -404,10 +409,8 @@ public class TestingJobMasterGateway implements JobMasterGateway {
 
     @Override
     public CompletableFuture<String> stopWithSavepoint(
-            @Nullable final String targetDirectory,
-            final boolean advanceToEndOfEventTime,
-            final Time timeout) {
-        return stopWithSavepointFunction.apply(targetDirectory, advanceToEndOfEventTime);
+            @Nullable final String targetDirectory, final boolean terminate, final Time timeout) {
+        return stopWithSavepointFunction.apply(targetDirectory, terminate);
     }
 
     @Override
