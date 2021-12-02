@@ -173,7 +173,7 @@ public abstract class AbstractColumnReader<VECTOR extends WritableColumnVector>
                     // We can't do this if rowId != 0 AND the column doesn't have a dictionary (i.e.
                     // some
                     // non-dictionary encoded values have already been added).
-                    vector.setDictionary(new ParquetDictionary(dictionary));
+                    vector.setDictionary(createVectorDictionary(dictionary));
                 } else {
                     readBatchFromDictionaryIds(rowId, num, vector, dictionaryIds);
                 }
@@ -193,6 +193,11 @@ public abstract class AbstractColumnReader<VECTOR extends WritableColumnVector>
             rowId += num;
             readNumber -= num;
         }
+    }
+
+    protected org.apache.flink.table.data.vector.Dictionary createVectorDictionary(
+            Dictionary dictionary) {
+        return new ParquetDictionary(dictionary);
     }
 
     private void readPageV1(DataPageV1 page) throws IOException {

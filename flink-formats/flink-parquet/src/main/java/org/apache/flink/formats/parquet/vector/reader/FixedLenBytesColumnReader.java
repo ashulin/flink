@@ -17,14 +17,18 @@
 
 package org.apache.flink.formats.parquet.vector.reader;
 
+import org.apache.flink.formats.parquet.vector.FixedLenBytesDictionary;
 import org.apache.flink.table.data.DecimalDataUtils;
+import org.apache.flink.table.data.vector.Dictionary;
 import org.apache.flink.table.data.vector.writable.WritableBytesVector;
 import org.apache.flink.table.data.vector.writable.WritableColumnVector;
 import org.apache.flink.table.data.vector.writable.WritableIntVector;
 import org.apache.flink.table.data.vector.writable.WritableLongVector;
+import org.apache.flink.util.Preconditions;
 
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.page.PageReader;
+import org.apache.parquet.column.values.dictionary.PlainValuesDictionary;
 import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.PrimitiveType;
 
@@ -42,6 +46,16 @@ public class FixedLenBytesColumnReader<VECTOR extends WritableColumnVector>
         super(descriptor, pageReader);
         checkTypeName(PrimitiveType.PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY);
         this.precision = precision;
+    }
+
+    @Override
+    protected Dictionary createVectorDictionary(org.apache.parquet.column.Dictionary dictionary) {
+        Preconditions.checkArgument(
+                dictionary instanceof PlainValuesDictionary.PlainBinaryDictionary,
+                "Expected type name: %s, actual type name: %s",
+                PlainValuesDictionary.PlainBinaryDictionary.class,
+                dictionary.getClass());
+        return new FixedLenBytesDictionary(dictionary);
     }
 
     @Override
