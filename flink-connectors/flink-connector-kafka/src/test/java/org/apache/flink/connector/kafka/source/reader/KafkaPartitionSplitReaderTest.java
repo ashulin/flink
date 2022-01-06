@@ -260,7 +260,10 @@ public class KafkaPartitionSplitReaderTest {
                 ConsumerConfig.GROUP_ID_CONFIG, "using-committed-offset-with-none-offset-reset");
         KafkaPartitionSplitReader reader =
                 createReader(props, UnregisteredMetricsGroup.createSourceReaderMetricGroup());
-        // Add a committed offset split and catch kafka exception
+        // We expect that there is a committed offset, but the group does not actually have a
+        // committed offset, and the offset reset strategy is none (Throw exception to the consumer
+        // if no previous offset is found for the consumer's group);
+        // So it is expected to throw an exception that missing the committed offset.
         final KafkaException undefinedOffsetException =
                 Assertions.assertThrows(
                         KafkaException.class,
@@ -299,20 +302,13 @@ public class KafkaPartitionSplitReaderTest {
                                 new KafkaPartitionSplit(
                                         new TopicPartition(TOPIC1, 0),
                                         KafkaPartitionSplit.COMMITTED_OFFSET))));
-        // pendingRecords should have not been registered because of lazily registration
-        assertFalse(metricListener.getGauge(MetricNames.PENDING_RECORDS).isPresent());
-        // Trigger first fetch
-        reader.fetch();
-        final Optional<Gauge<Long>> pendingRecords =
-                metricListener.getGauge(MetricNames.PENDING_RECORDS);
-        assertTrue(pendingRecords.isPresent());
-        // Validate pendingRecords
-        assertNotNull(pendingRecords);
-        assertEquals(NUM_RECORDS_PER_PARTITION - 1, (long) pendingRecords.get().getValue());
-        for (int i = 1; i < NUM_RECORDS_PER_PARTITION; i++) {
-            reader.fetch();
-            assertEquals(NUM_RECORDS_PER_PARTITION - i - 1, (long) pendingRecords.get().getValue());
-        }
+        // Trigger fetch
+        RecordsWithSplitIds<ConsumerRecord<byte[], byte[]>> recordsWithSplitIds = reader.fetch();
+
+        // Validate whether the record is consumed from the earliest offset(0)
+        ConsumerRecord<byte[], byte[]> firstRecord = recordsWithSplitIds.nextRecordFromSplit();
+        assertNotNull(firstRecord);
+        assertEquals(0L, firstRecord.offset());
     }
 
     @Test
@@ -331,6 +327,7 @@ public class KafkaPartitionSplitReaderTest {
                         new TopicPartition(TOPIC1, 0),
                         KafkaPartitionSplit.COMMITTED_OFFSET,
                         KafkaPartitionSplit.LATEST_OFFSET);
+        // Add non-empty split to make sure reader.fetch() can run
         final KafkaPartitionSplit latestOffsetResetNormalSplit =
                 new KafkaPartitionSplit(
                         new TopicPartition(TOPIC2, 0), KafkaPartitionSplit.COMMITTED_OFFSET);
